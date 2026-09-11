@@ -22,12 +22,12 @@ int focus_index = -1;
 #define COLOR_FOCUS   0x55ffff  
 #define COLOR_UNFOCUS 0x222222  
 
-// 1. Handler de erori X11: Ignoră erorile de focus/fereastră pentru a preveni crash-ul WM-ului
+// Variabile globale pentru starea drag-ului
+XWindowAttributes start_attr;
+XButtonEvent start_mouse;
+
 int x_error_handler(Display *dpy, XErrorEvent *ee) {
-    // BadMatch (42) sau BadWindow sunt erori comune când o fereastră se închide rapid.
-    // Doar afișăm o avertizare în consola de debug fără să oprim programul.
-    fprintf(stderr, "WM: Eroare X11 interceptată (code %d, request %d)\n", ee->error_code, ee->request_code);
-    return 0;
+    return 0; // Ignoră erorile X11 non-fatale
 }
 
 void spawn(const char* cmd[]) {
@@ -35,7 +35,6 @@ void spawn(const char* cmd[]) {
         if (dpy) close(ConnectionNumber(dpy));
         setsid();
         execvp(cmd[0], (char* const*)cmd);
-        fprintf(stderr, "Eroare la lansarea comenzii: %s\n", cmd[0]);
         _exit(1);
     }
 }
@@ -55,13 +54,26 @@ void focus_window(int idx) {
     focus_index = idx;
 }
 
+void grab_buttons(Window w) {
+    // Alt + Click Stânga -> Mutare
+    XGrabButton(dpy, Button1, MOD, w, True,
+                ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+                GrabModeAsync, GrabModeAsync, None, None);
+
+    // Alt + Click Dreapta -> Redimensionare
+    XGrabButton(dpy, Button3, MOD, w, True,
+                ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+                GrabModeAsync, GrabModeAsync, None, None);
+}
+
 void manage_window(Window w) {
     XSelectInput(dpy, w, FocusChangeMask | StructureNotifyMask);
     XSetWindowBorderWidth(dpy, w, 2);
     
-    // Asigurăm că fereastra este mapată (vizibilă) înainte de a seta focusul pe ea
-    XMapWindow(dpy, w);
+    // Înregistrăm butoanele de mouse pe fereastra nouă
+    grab_buttons(w);
 
+    XMapWindow(dpy, w);
     windows.push_back({w});
     focus_window((int)windows.size() - 1);
 }
@@ -98,14 +110,10 @@ void grab_keys() {
 }
 
 int main() {
-    // Înregistrăm handler-ul de erori înainte de a deschide conexiunea sau procesa evenimentele
     XSetErrorHandler(x_error_handler);
 
     dpy = XOpenDisplay(nullptr);
-    if (!dpy) {
-        fprintf(stderr, "Eroare: Nu s-a putut conecta la serverul X11!\n");
-        return 1;
-    }
+    if (!dpy) return 1;
 
     screen = DefaultScreen(dpy);
     root = RootWindow(dpy, screen);
@@ -140,6 +148,40 @@ int main() {
                 changes.sibling = ev.xconfigurerequest.above;
                 changes.stack_mode = ev.xconfigurerequest.detail;
                 XConfigureWindow(dpy, ev.xconfigurerequest.window, ev.xconfigurerequest.value_mask, &changes);
+                break;
+            }
+
+            case ButtonPress: {
+                if (ev.xbutton.subwindow != None) {
+                    XGetWindowAttributes(dpy, ev.xbutton.subwindow, &start_attr);
+                    start_mouse = ev.xbutton;
+                    XRaiseWindow(dpy, ev.xbutton.subwindow);
+                }
+                break;
+            }
+
+            case MotionNotify: {
+                if (start_mouse.subwindow != None) {
+                    int xdiff = ev.xbutton.x_root - start_mouse.x_root;
+                    int ydiff = ev.xbutton.y_root - start_mouse.y_root;
+
+                    if (start_mouse.button == Button1) {
+                        // Alt + Left Click Drag -> Mutare
+                        XMoveWindow(dpy, start_mouse.subwindow,
+                                    start_attr.x + xdiff,
+                                    start_attr.y + ydiff);
+                    } else if (start_mouse.button == Button3) {
+                        // Alt + Right Click Drag -> Redimensionare
+                        int new_w = std::max(50, start_attr.width + xdiff);
+                        int new_h = std::max(50, start_attr.height + ydiff);
+                        XResizeWindow(dpy, start_mouse.subwindow, new_w, new_h);
+                    }
+                }
+                break;
+            }
+
+            case ButtonRelease: {
+                start_mouse.subwindow = None;
                 break;
             }
 
