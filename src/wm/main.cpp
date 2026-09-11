@@ -1,5 +1,5 @@
 #include <X11/Xlib.h>
-#include <X11/Xutil.h>  // <-- Adăugat pentru XSizeHints și XGetWMNormalHints
+#include <X11/Xutil.h>
 #include <X11/keysym.h>
 #include <X11/Xatom.h>
 #include <unistd.h>
@@ -190,35 +190,47 @@ int main() {
                 break;
             }
 
-            case ButtonPress: {
-                if (ev.xbutton.subwindow != None) {
-                    XGetWindowAttributes(dpy, ev.xbutton.subwindow, &start_attr);
+           case ButtonPress: {
+                // Vizăm fereastra principală (ev.xbutton.window), nu sub-elementele din ea
+                Window target = ev.xbutton.window;
+                if (target != None && target != root) {
+                    XGetWindowAttributes(dpy, target, &start_attr);
                     start_mouse = ev.xbutton;
-                    XRaiseWindow(dpy, ev.xbutton.subwindow);
+                    start_mouse.window = target; // Salvăm fereastra principală
+                    
+                    // Căutăm indexul ferestrei pentru a-i da focus
+                    for (size_t i = 0; i < windows.size(); i++) {
+                        if (windows[i].win == target) {
+                            focus_window((int)i);
+                            break;
+                        }
+                    }
                 }
                 break;
             }
 
             case MotionNotify: {
-                if (start_mouse.subwindow != None) {
+                if (start_mouse.window != None) {
                     int xdiff = ev.xbutton.x_root - start_mouse.x_root;
                     int ydiff = ev.xbutton.y_root - start_mouse.y_root;
 
                     if (start_mouse.button == Button1) {
-                        XMoveWindow(dpy, start_mouse.subwindow,
+                        // Alt + Click Stânga Drag -> Mutare fereastră principală
+                        XMoveWindow(dpy, start_mouse.window,
                                     start_attr.x + xdiff,
                                     start_attr.y + ydiff);
                     } else if (start_mouse.button == Button3) {
+                        // Alt + Click Dreapta Drag -> Redimensionare fereastră principală
                         int new_w = start_attr.width + xdiff;
                         int new_h = start_attr.height + ydiff;
-                        resize_window(start_mouse.subwindow, new_w, new_h);
+                        resize_window(start_mouse.window, new_w, new_h);
                     }
                 }
                 break;
             }
 
             case ButtonRelease: {
-                start_mouse.subwindow = None;
+                start_mouse.window = None;
                 break;
             }
 
