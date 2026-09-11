@@ -26,8 +26,37 @@ int focus_index = -1;
 XWindowAttributes start_attr;
 XButtonEvent start_mouse;
 
+void tile() {
+    int n = (int)windows.size();
+    if (n == 0) return;
+
+    int sw = DisplayWidth(dpy, screen);
+    int sh = DisplayHeight(dpy, screen);
+
+    if (n == 1) {
+        XMoveWindow(dpy, windows[0].win, 0, 0);
+        resize_window(windows[0].win, sw - 4, sh - 4); 
+    } else {
+        int master_w = sw / 2;
+        XMoveWindow(dpy, windows[0].win, 0, 0);
+        resize_window(windows[0].win, master_w - 4, sh - 4);
+
+        int stack_w = sw - master_w;
+        int stack_h = sh / (n - 1);
+
+        for (int i = 1; i < n; i++) {
+            int x = master_w;
+            int y = (i - 1) * stack_h;
+            int h = (i == n - 1) ? (sh - y) : stack_h;
+
+            XMoveWindow(dpy, windows[i].win, x, y);
+            resize_window(windows[i].win, stack_w - 4, h - 4);
+        }
+    }
+}
+
 int x_error_handler(Display *dpy, XErrorEvent *ee) {
-    return 0; // Ignoră erorile X11 non-fatale
+    return 0;
 }
 
 void spawn(const char* cmd[]) {
@@ -114,6 +143,8 @@ void manage_window(Window w) {
 
     XMapWindow(dpy, w);
     windows.push_back({w});
+    
+    tile();
     focus_window((int)windows.size() - 1);
 }
 
@@ -126,6 +157,8 @@ void unmanage_window(Window w) {
 
     windows.erase(it);
     if (focus_index >= (int)windows.size()) focus_index = (int)windows.size() - 1;
+    
+    tile();
     if (focus_index >= 0) focus_window(focus_index);
 }
 
