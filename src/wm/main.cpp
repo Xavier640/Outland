@@ -154,10 +154,11 @@ void manage_window(Window w) {
     grab_buttons(w);
 
     XMapWindow(dpy, w);
-    windows.push_back({w});
     
-    tile();
-    focus_window((int)windows.size() - 1);
+    windows.insert(windows.begin(), {w});
+    
+    tile(); 
+    focus_window(0);
 }
 
 void unmanage_window(Window w) {
@@ -235,7 +236,7 @@ int main() {
                 break;
             }
 
-         case ButtonPress: {
+         ccase ButtonPress: {
                 Window target = ev.xbutton.window;
                 if (target != None && target != root) {
                     XGetWindowAttributes(dpy, target, &start_attr);
@@ -244,7 +245,12 @@ int main() {
                     
                     for (size_t i = 0; i < windows.size(); i++) {
                         if (windows[i].win == target) {
-                            make_master((int)i);
+                            if (ev.xbutton.state & MOD) {
+                                make_master((int)i);
+                            } 
+                            else {
+                                focus_window((int)i);
+                            }
                             break;
                         }
                     }
