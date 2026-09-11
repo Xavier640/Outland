@@ -138,9 +138,9 @@ void resize_window(Window w, int width, int height) {
 }
 
 void grab_buttons(Window w) {
-    XGrabButton(dpy, Button1, MOD, w, True,
+    XGrabButton(dpy, Button1, AnyModifier, w, True,
                 ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
-                GrabModeAsync, GrabModeAsync, None, None);
+                GrabModeSync, GrabModeAsync, None, None);
 
     XGrabButton(dpy, Button3, MOD, w, True,
                 ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
@@ -235,7 +235,7 @@ int main() {
                 break;
             }
 
-           case ButtonPress: {
+         case ButtonPress: {
                 Window target = ev.xbutton.window;
                 if (target != None && target != root) {
                     XGetWindowAttributes(dpy, target, &start_attr);
@@ -249,6 +249,7 @@ int main() {
                         }
                     }
                 }
+                XAllowEvents(dpy, ReplayPointer, CurrentTime);
                 break;
             }
 
