@@ -55,6 +55,18 @@ void tile() {
     }
 }
 
+void make_master(int idx) {
+    if (idx <= 0 || idx >= (int)windows.size()) return;
+
+    ManagedWindow target = windows[idx];
+    windows.erase(windows.begin() + idx);
+    windows.insert(windows.begin(), target);
+
+    focus_index = 0;
+    tile();
+    focus_window(0);
+}
+
 int x_error_handler(Display *dpy, XErrorEvent *ee) {
     return 0;
 }
@@ -224,17 +236,15 @@ int main() {
             }
 
            case ButtonPress: {
-                // Vizăm fereastra principală (ev.xbutton.window), nu sub-elementele din ea
                 Window target = ev.xbutton.window;
                 if (target != None && target != root) {
                     XGetWindowAttributes(dpy, target, &start_attr);
                     start_mouse = ev.xbutton;
-                    start_mouse.window = target; // Salvăm fereastra principală
+                    start_mouse.window = target;
                     
-                    // Căutăm indexul ferestrei pentru a-i da focus
                     for (size_t i = 0; i < windows.size(); i++) {
                         if (windows[i].win == target) {
-                            focus_window((int)i);
+                            make_master((int)i);
                             break;
                         }
                     }
@@ -248,15 +258,13 @@ int main() {
                     int ydiff = ev.xbutton.y_root - start_mouse.y_root;
 
                     if (start_mouse.button == Button1) {
-                        // Alt + Click Stânga Drag -> Mutare fereastră principală
                         XMoveWindow(dpy, start_mouse.window,
                                     start_attr.x + xdiff,
                                     start_attr.y + ydiff);
                     } else if (start_mouse.button == Button3) {
-                        // Alt + Click Dreapta Drag -> Redimensionare fereastră principală
                         int new_w = start_attr.width + xdiff;
                         int new_h = start_attr.height + ydiff;
-                        resize_window(start_mouse.window, new_w, new_h);
+                        XResizeWindow(dpy, start_mouse.window, new_w, new_h);
                     }
                 }
                 break;
