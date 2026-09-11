@@ -236,7 +236,7 @@ int main() {
                 break;
             }
 
-         ccase ButtonPress: {
+         case ButtonPress: {
                 Window target = ev.xbutton.window;
                 if (target != None && target != root) {
                     XGetWindowAttributes(dpy, target, &start_attr);
