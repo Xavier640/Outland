@@ -1,11 +1,11 @@
 #include <X11/Xlib.h>
-#include <cstdio>
 #include <X11/keysym.h>
 #include <X11/Xatom.h>
-#include <vector>
-#include <algorithm>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <vector>
+#include <algorithm>
+#include <cstdio>
 
 Display* dpy;
 int screen;
@@ -19,16 +19,23 @@ std::vector<ManagedWindow> windows;
 int focus_index = -1;
 
 #define MOD Mod1Mask
+#define COLOR_FOCUS   0x55ffff  
+#define COLOR_UNFOCUS 0x222222  
 
-#define COLOR_FOCUS 0x55ffff
-#define COLOR_UNFOCUS 0x222222
+// 1. Handler de erori X11: Ignoră erorile de focus/fereastră pentru a preveni crash-ul WM-ului
+int x_error_handler(Display *dpy, XErrorEvent *ee) {
+    // BadMatch (42) sau BadWindow sunt erori comune când o fereastră se închide rapid.
+    // Doar afișăm o avertizare în consola de debug fără să oprim programul.
+    fprintf(stderr, "WM: Eroare X11 interceptată (code %d, request %d)\n", ee->error_code, ee->request_code);
+    return 0;
+}
 
-void spawn(const char* cmd[]){
+void spawn(const char* cmd[]) {
     if (fork() == 0) {
         if (dpy) close(ConnectionNumber(dpy));
         setsid();
         execvp(cmd[0], (char* const*)cmd);
-        fprintf(stderr, "Error: execvp failed\n");
+        fprintf(stderr, "Eroare la lansarea comenzii: %s\n", cmd[0]);
         _exit(1);
     }
 }
@@ -51,6 +58,9 @@ void focus_window(int idx) {
 void manage_window(Window w) {
     XSelectInput(dpy, w, FocusChangeMask | StructureNotifyMask);
     XSetWindowBorderWidth(dpy, w, 2);
+    
+    // Asigurăm că fereastra este mapată (vizibilă) înainte de a seta focusul pe ea
+    XMapWindow(dpy, w);
 
     windows.push_back({w});
     focus_window((int)windows.size() - 1);
@@ -64,7 +74,7 @@ void unmanage_window(Window w) {
     if (it == windows.end()) return;
 
     windows.erase(it);
-    if (focus_index >= (int) windows.size()) focus_index = (int)windows.size() - 1;
+    if (focus_index >= (int)windows.size()) focus_index = (int)windows.size() - 1;
     if (focus_index >= 0) focus_window(focus_index);
 }
 
@@ -88,8 +98,14 @@ void grab_keys() {
 }
 
 int main() {
+    // Înregistrăm handler-ul de erori înainte de a deschide conexiunea sau procesa evenimentele
+    XSetErrorHandler(x_error_handler);
+
     dpy = XOpenDisplay(nullptr);
-    if (!dpy) return 1;
+    if (!dpy) {
+        fprintf(stderr, "Eroare: Nu s-a putut conecta la serverul X11!\n");
+        return 1;
+    }
 
     screen = DefaultScreen(dpy);
     root = RootWindow(dpy, screen);
@@ -97,7 +113,6 @@ int main() {
     XSelectInput(dpy, root, SubstructureRedirectMask | SubstructureNotifyMask);
     grab_keys();
 
-    // Prevenim procesele zombie când rulăm aplicații externe
     signal(SIGCHLD, SIG_IGN);
 
     bool running = true;
