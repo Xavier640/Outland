@@ -88,5 +88,71 @@ void grab_keys() {
 }
 
 int main() {
-    
+    dpy = XOpenDisplay(nullptr);
+    if (!dpy) return 1;
+
+    screen = DefaultScreen(dpy);
+    root = RootWindow(dpy, screen);
+
+    XSelectInput(dpy, root, SubstructureRedirectMask | SubstructureNotifyMask);
+    grab_keys();
+
+    // Prevenim procesele zombie când rulăm aplicații externe
+    signal(SIGCHLD, SIG_IGN);
+
+    bool running = true;
+    XEvent ev;
+
+    while (running) {
+        XNextEvent(dpy, &ev);
+
+        switch (ev.type) {
+            case MapRequest:
+                manage_window(ev.xmaprequest.window);
+                break;
+
+            case DestroyNotify:
+                unmanage_window(ev.xdestroywindow.window);
+                break;
+
+            case ConfigureRequest: {
+                XWindowChanges changes;
+                changes.x = ev.xconfigurerequest.x;
+                changes.y = ev.xconfigurerequest.y;
+                changes.width = ev.xconfigurerequest.width;
+                changes.height = ev.xconfigurerequest.height;
+                changes.border_width = 2;
+                changes.sibling = ev.xconfigurerequest.above;
+                changes.stack_mode = ev.xconfigurerequest.detail;
+                XConfigureWindow(dpy, ev.xconfigurerequest.window, ev.xconfigurerequest.value_mask, &changes);
+                break;
+            }
+
+            case KeyPress: {
+                KeySym ks = XLookupKeysym(&ev.xkey, 0);
+
+                if (ev.xkey.state & MOD) {
+                    if (ks == XK_Return) {
+                        const char* cmd[] = { "xterm", nullptr };
+                        spawn(cmd);
+                    } else if (ks == XK_C && (ev.xkey.state & ShiftMask)) {
+                        if (focus_index >= 0 && focus_index < (int)windows.size()) {
+                            close_window(windows[focus_index].win);
+                        }
+                    } else if (ks == XK_Tab) {
+                        if (!windows.empty()) {
+                            int next = (focus_index + 1) % windows.size();
+                            focus_window(next);
+                        }
+                    } else if (ks == XK_Q && (ev.xkey.state & ShiftMask)) {
+                        running = false;
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    XCloseDisplay(dpy);
+    return 0;
 }
