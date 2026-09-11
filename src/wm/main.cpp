@@ -40,9 +40,9 @@ void focus_window(int idx) {
         if (i == idx) {
             XSetWindowBorder(dpy, windows[i].win, COLOR_FOCUS);
             XSetInputFocus(dpy, windows[i].win, RevertToParent, CurrentTime);
+            XRaiseWindow(dpy, windows[i].win);
         } else {
             XSetWindowBorder(dpy, windows[i].win, COLOR_UNFOCUS);
-        }
         }
     }
     focus_index = idx;
@@ -76,15 +76,15 @@ void close_window(Window w) {
     xev.xclient.message_type = XInternAtom(dpy, "WM_PROTOCOLS", False);
     xev.xclient.format = 32;
     xev.xclient.data.l[0] = (long)wm_delete;
-    xev.sclient.data.l[1] = CurrentTime;
+    xev.xclient.data.l[1] = CurrentTime;
     XSendEvent(dpy, w, False, NoEventMask, &xev);
 }
 
 void grab_keys() {
-    XGrabKey(dpy, XKeySimToKeyCode(dpy, XK_Return), MOD, root, True, GrabModeAsync, GrabModeAsync);
-    XGrabKey(dpy, XKeySimToKeyCode(dpy, XK_C), MOD | ShiftMask, root, True, GrabModeAsync, GrabModeAsync);
-    XGrabKey(dpy, XKeySimToKeyCode(dpy, XK_Tab), MOD, root, True, GrabModeAsync, GrabModeAsync);
-    XGrabKey(dpy, XKeySimToKeyCode(dpy, XK_Q), MOD | ShiftMask, root, True, GrabModeAsync, GrabModeAsync);
+    XGrabKey(dpy, XKeysymToKeycode(dpy, XK_Return), MOD, root, True, GrabModeAsync, GrabModeAsync);
+    XGrabKey(dpy, XKeysymToKeycode(dpy, XK_C), MOD | ShiftMask, root, True, GrabModeAsync, GrabModeAsync);
+    XGrabKey(dpy, XKeysymToKeycode(dpy, XK_Tab), MOD, root, True, GrabModeAsync, GrabModeAsync);
+    XGrabKey(dpy, XKeysymToKeycode(dpy, XK_Q), MOD | ShiftMask, root, True, GrabModeAsync, GrabModeAsync);
 }
 
 int main() {
