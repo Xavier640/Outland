@@ -109,6 +109,48 @@ void grab_keys() {
     XGrabKey(dpy, XKeysymToKeycode(dpy, XK_Q), MOD | ShiftMask, root, True, GrabModeAsync, GrabModeAsync);
 }
 
+void resize_window(Window w, int width, int height) {
+    XSizeHints hints;
+    long supplied;
+    if (XGetWMNormalHints(dpy, w, &hints, &supplied)) {
+        if (hints.flags & PMinSize) {
+            width = std::max(width, hints.min_width);
+            height = std::max(height, hints.min_height);
+        }
+        if (hints.flags & PResizeInc) {
+            int base_w = (hints.flags & PBaseSize) ? hints.base_width : 0;
+            int base_h = (hints.flags & PBaseSize) ? hints.base_height : 0;
+            if (hints.width_inc > 0)
+                width -= (width - base_w) % hints.width_inc;
+            if (hints.height_inc > 0)
+                height -= (height - base_h) % hints.height_inc;
+        }
+    }
+
+    width = std::max(50, width);
+    height = std::max(50, height);
+
+    XResizeWindow(dpy, w, width, height);
+
+    XWindowAttributes attr;
+    XGetWindowAttributes(dpy, w, &attr);
+
+    XConfigureEvent ce = {};
+    ce.type = ConfigureNotify;
+    ce.display = dpy;
+    ce.event = w;
+    ce.window = w;
+    ce.x = attr.x;
+    ce.y = attr.y;
+    ce.width = width;
+    ce.height = height;
+    ce.border_width = attr.border_width;
+    ce.above = None;
+    ce.override_redirect = False;
+
+    XSendEvent(dpy, w, False, StructureNotifyMask, (XEvent *)&ce);
+}
+
 int main() {
     XSetErrorHandler(x_error_handler);
 
@@ -166,15 +208,16 @@ int main() {
                     int ydiff = ev.xbutton.y_root - start_mouse.y_root;
 
                     if (start_mouse.button == Button1) {
-                        // Alt + Left Click Drag -> Mutare
+                        // Alt + Click Stânga Drag -> Mutare
                         XMoveWindow(dpy, start_mouse.subwindow,
                                     start_attr.x + xdiff,
                                     start_attr.y + ydiff);
                     } else if (start_mouse.button == Button3) {
-                        // Alt + Right Click Drag -> Redimensionare
-                        int new_w = std::max(50, start_attr.width + xdiff);
-                        int new_h = std::max(50, start_attr.height + ydiff);
-                        XResizeWindow(dpy, start_mouse.subwindow, new_w, new_h);
+                        // Alt + Click Dreapta Drag -> Redimensionare corectă
+                        int new_w = start_attr.width + xdiff;
+                        int new_h = start_attr.height + ydiff;
+                        
+                        resize_window(start_mouse.subwindow, new_w, new_h);
                     }
                 }
                 break;
