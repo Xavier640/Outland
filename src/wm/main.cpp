@@ -4,7 +4,6 @@
 #include <X11/Xatom.h>
 #include <unistd.h>
 #include <sys/wait.h>
-#include <vector>
 #include <algorithm>
 #include <cstdio>
 
@@ -12,12 +11,17 @@ Display* dpy;
 int screen;
 Window root;
 
-struct ManagedWindow {
-    Window win;
+struct Node {
+    Window win = None;
+    Node* left = nullptr;
+    Node* right = nullptr;
+    Node* parent = nullptr;
+
+    bool is_leaf() const { return left == nullptr && right == nullptr; }
 };
 
-std::vector<ManagedWindow> windows;
-int focus_index = -1;
+Node* root_node = nullptr;
+Window current_focus = None;
 
 #define MOD Mod1Mask
 #define COLOR_FOCUS   0x55ffff  
@@ -25,47 +29,6 @@ int focus_index = -1;
 
 XWindowAttributes start_attr;
 XButtonEvent start_mouse;
-
-void tile() {
-    int n = (int)windows.size();
-    if (n == 0) return;
-
-    int sw = DisplayWidth(dpy, screen);
-    int sh = DisplayHeight(dpy, screen);
-
-    if (n == 1) {
-        XMoveWindow(dpy, windows[0].win, 0, 0);
-        XResizeWindow(dpy, windows[0].win, sw - 4, sh - 4); 
-    } else {
-        int master_w = sw / 2;
-        XMoveWindow(dpy, windows[0].win, 0, 0);
-        XResizeWindow(dpy, windows[0].win, master_w - 4, sh - 4);
-
-        int stack_w = sw - master_w;
-        int stack_h = sh / (n - 1);
-
-        for (int i = 1; i < n; i++) {
-            int x = master_w;
-            int y = (i - 1) * stack_h;
-            int h = (i == n - 1) ? (sh - y) : stack_h;
-
-            XMoveWindow(dpy, windows[i].win, x, y);
-            XResizeWindow(dpy, windows[i].win, stack_w - 4, h - 4);
-        }
-    }
-}
-
-void make_master(int idx) {
-    if (idx <= 0 || idx >= (int)windows.size()) return;
-
-    ManagedWindow target = windows[idx];
-    windows.erase(windows.begin() + idx);
-    windows.insert(windows.begin(), target);
-
-    focus_index = 0;
-    tile();
-    focus_index = 0;
-}
 
 int x_error_handler(Display *dpy, XErrorEvent *ee) {
     return 0;
@@ -78,21 +41,6 @@ void spawn(const char* cmd[]) {
         execvp(cmd[0], (char* const*)cmd);
         _exit(1);
     }
-}
-
-void focus_window(int idx) {
-    if (idx < 0 || idx >= (int)windows.size()) return;
-
-    for (int i = 0; i < (int)windows.size(); i++) {
-        if (i == idx) {
-            XSetWindowBorder(dpy, windows[i].win, COLOR_FOCUS);
-            XSetInputFocus(dpy, windows[i].win, RevertToParent, CurrentTime);
-            XRaiseWindow(dpy, windows[i].win);
-        } else {
-            XSetWindowBorder(dpy, windows[i].win, COLOR_UNFOCUS);
-        }
-    }
-    focus_index = idx;
 }
 
 void resize_window(Window w, int width, int height) {
@@ -137,14 +85,111 @@ void resize_window(Window w, int width, int height) {
     XSendEvent(dpy, w, False, StructureNotifyMask, (XEvent *)&ce);
 }
 
+Node* find_node(Node* node, Window w) {
+    if (!node) return nullptr;
+    if (node->is_leaf() && node->win == w) return node;
+    
+    Node* left_res = find_node(node->left, w);
+    if (left_res) return left_res;
+    
+    return find_node(node->right, w);
+}
+
+Node* get_any_leaf(Node* node) {
+    if (!node) return nullptr;
+    if (node->is_leaf()) return node;
+    return get_any_leaf(node->left);
+}
+
+void set_focus(Window w) {
+    if (w == None) return;
+    current_focus = w;
+    XSetInputFocus(dpy, w, RevertToParent, CurrentTime);
+    XRaiseWindow(dpy, w);
+}
+
+void insert_window(Window w) {
+    if (!root_node) {
+        root_node = new Node{w, nullptr, nullptr, nullptr};
+        return;
+    }
+
+    Node* target = find_node(root_node, current_focus);
+    if (!target) target = get_any_leaf(root_node);
+
+    Window old_win = target->win;
+    target->win = None;
+
+    target->left = new Node{old_win, nullptr, nullptr, target};
+    target->right = new Node{w, nullptr, nullptr, target};
+}
+
+void remove_window(Window w) {
+    Node* node = find_node(root_node, w);
+    if (!node) return;
+
+    if (node == root_node) {
+        delete root_node;
+        root_node = nullptr;
+        current_focus = None;
+        return;
+    }
+
+    Node* parent = node->parent;
+    Node* sibling = (parent->left == node) ? parent->right : parent->left;
+
+    parent->win = sibling->win;
+    parent->left = sibling->left;
+    parent->right = sibling->right;
+
+    if (parent->left) parent->left->parent = parent;
+    if (parent->right) parent->right->parent = parent;
+
+    delete node;
+    delete sibling;
+
+    Node* next_focus = get_any_leaf(root_node);
+    if (next_focus) set_focus(next_focus->win);
+}
+
+void tile_tree(Node* node, int x, int y, int w, int h) {
+    if (!node) return;
+
+    if (node->is_leaf()) {
+        XMoveWindow(dpy, node->win, x, y);
+        resize_window(node->win, w - 4, h - 4);
+        
+        if (node->win == current_focus) {
+            XSetWindowBorder(dpy, node->win, COLOR_FOCUS);
+        } else {
+            XSetWindowBorder(dpy, node->win, COLOR_UNFOCUS);
+        }
+        return;
+    }
+
+    if (w >= h) {
+        int w1 = w / 2;
+        int w2 = w - w1;
+        tile_tree(node->left, x, y, w1, h);
+        tile_tree(node->right, x + w1, y, w2, h);
+    } else {
+        int h1 = h / 2;
+        int h2 = h - h1;
+        tile_tree(node->left, x, y, w, h1);
+        tile_tree(node->right, x, y + h1, w, h2);
+    }
+}
+
+void apply_layout() {
+    int sw = DisplayWidth(dpy, screen);
+    int sh = DisplayHeight(dpy, screen);
+    tile_tree(root_node, 0, 0, sw, sh);
+}
+
 void grab_buttons(Window w) {
     XGrabButton(dpy, Button1, AnyModifier, w, True,
                 ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
                 GrabModeSync, GrabModeAsync, None, None);
-
-    XGrabButton(dpy, Button3, MOD, w, True,
-                ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
-                GrabModeAsync, GrabModeAsync, None, None);
 }
 
 void manage_window(Window w) {
@@ -152,27 +197,16 @@ void manage_window(Window w) {
     XSetWindowBorderWidth(dpy, w, 2);
     
     grab_buttons(w);
-
     XMapWindow(dpy, w);
-    
-    windows.insert(windows.begin(), {w});
-    
-    tile(); 
-    focus_window(0);
+
+    insert_window(w);
+    set_focus(w);
+    apply_layout();
 }
 
 void unmanage_window(Window w) {
-    auto it = std::find_if(windows.begin(), windows.end(), [&](const ManagedWindow& mw) {
-        return mw.win == w;
-    });
-
-    if (it == windows.end()) return;
-
-    windows.erase(it);
-    if (focus_index >= (int)windows.size()) focus_index = (int)windows.size() - 1;
-    
-    tile();
-    if (focus_index >= 0) focus_window(focus_index);
+    remove_window(w);
+    apply_layout();
 }
 
 void close_window(Window w) {
@@ -190,7 +224,6 @@ void close_window(Window w) {
 void grab_keys() {
     XGrabKey(dpy, XKeysymToKeycode(dpy, XK_Return), MOD, root, True, GrabModeAsync, GrabModeAsync);
     XGrabKey(dpy, XKeysymToKeycode(dpy, XK_C), MOD | ShiftMask, root, True, GrabModeAsync, GrabModeAsync);
-    XGrabKey(dpy, XKeysymToKeycode(dpy, XK_Tab), MOD, root, True, GrabModeAsync, GrabModeAsync);
     XGrabKey(dpy, XKeysymToKeycode(dpy, XK_Q), MOD | ShiftMask, root, True, GrabModeAsync, GrabModeAsync);
 }
 
@@ -236,49 +269,13 @@ int main() {
                 break;
             }
 
-         case ButtonPress: {
+            case ButtonPress: {
                 Window target = ev.xbutton.window;
                 if (target != None && target != root) {
-                    XGetWindowAttributes(dpy, target, &start_attr);
-                    start_mouse = ev.xbutton;
-                    start_mouse.window = target;
-                    
-                    for (size_t i = 0; i < windows.size(); i++) {
-                        if (windows[i].win == target) {
-                            if (ev.xbutton.state & MOD) {
-                                make_master((int)i);
-                            } 
-                            else {
-                                focus_window((int)i);
-                            }
-                            break;
-                        }
-                    }
+                    set_focus(target);
+                    apply_layout();
                 }
                 XAllowEvents(dpy, ReplayPointer, CurrentTime);
-                break;
-            }
-
-            case MotionNotify: {
-                if (start_mouse.window != None) {
-                    int xdiff = ev.xbutton.x_root - start_mouse.x_root;
-                    int ydiff = ev.xbutton.y_root - start_mouse.y_root;
-
-                    if (start_mouse.button == Button1) {
-                        XMoveWindow(dpy, start_mouse.window,
-                                    start_attr.x + xdiff,
-                                    start_attr.y + ydiff);
-                    } else if (start_mouse.button == Button3) {
-                        int new_w = start_attr.width + xdiff;
-                        int new_h = start_attr.height + ydiff;
-                        XResizeWindow(dpy, start_mouse.window, new_w, new_h);
-                    }
-                }
-                break;
-            }
-
-            case ButtonRelease: {
-                start_mouse.window = None;
                 break;
             }
 
@@ -290,13 +287,8 @@ int main() {
                         const char* cmd[] = { "xterm", nullptr };
                         spawn(cmd);
                     } else if (ks == XK_C && (ev.xkey.state & ShiftMask)) {
-                        if (focus_index >= 0 && focus_index < (int)windows.size()) {
-                            close_window(windows[focus_index].win);
-                        }
-                    } else if (ks == XK_Tab) {
-                        if (!windows.empty()) {
-                            int next = (focus_index + 1) % windows.size();
-                            focus_window(next);
+                        if (current_focus != None) {
+                            close_window(current_focus);
                         }
                     } else if (ks == XK_Q && (ev.xkey.state & ShiftMask)) {
                         running = false;
