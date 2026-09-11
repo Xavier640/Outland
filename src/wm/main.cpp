@@ -35,11 +35,11 @@ void tile() {
 
     if (n == 1) {
         XMoveWindow(dpy, windows[0].win, 0, 0);
-        resize_window(windows[0].win, sw - 4, sh - 4); 
+        XResizeWindow(dpy, windows[0].win, sw - 4, sh - 4); 
     } else {
         int master_w = sw / 2;
         XMoveWindow(dpy, windows[0].win, 0, 0);
-        resize_window(windows[0].win, master_w - 4, sh - 4);
+        XResizeWindow(dpy, windows[0].win, master_w - 4, sh - 4);
 
         int stack_w = sw - master_w;
         int stack_h = sh / (n - 1);
@@ -50,7 +50,7 @@ void tile() {
             int h = (i == n - 1) ? (sh - y) : stack_h;
 
             XMoveWindow(dpy, windows[i].win, x, y);
-            resize_window(windows[i].win, stack_w - 4, h - 4);
+            XResizeWindow(dpy, windows[i].win, stack_w - 4, h - 4);
         }
     }
 }
