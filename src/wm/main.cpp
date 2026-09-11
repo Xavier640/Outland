@@ -64,7 +64,7 @@ void make_master(int idx) {
 
     focus_index = 0;
     tile();
-    focus_window(0);
+    focus_index(0);
 }
 
 int x_error_handler(Display *dpy, XErrorEvent *ee) {
