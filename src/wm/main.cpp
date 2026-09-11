@@ -1,4 +1,5 @@
 #include <X11/Xlib.h>
+#include <X11/Xutil.h>  // <-- Adăugat pentru XSizeHints și XGetWMNormalHints
 #include <X11/keysym.h>
 #include <X11/Xatom.h>
 #include <unistd.h>
@@ -22,7 +23,6 @@ int focus_index = -1;
 #define COLOR_FOCUS   0x55ffff  
 #define COLOR_UNFOCUS 0x222222  
 
-// Variabile globale pentru starea drag-ului
 XWindowAttributes start_attr;
 XButtonEvent start_mouse;
 
@@ -52,61 +52,6 @@ void focus_window(int idx) {
         }
     }
     focus_index = idx;
-}
-
-void grab_buttons(Window w) {
-    // Alt + Click Stânga -> Mutare
-    XGrabButton(dpy, Button1, MOD, w, True,
-                ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
-                GrabModeAsync, GrabModeAsync, None, None);
-
-    // Alt + Click Dreapta -> Redimensionare
-    XGrabButton(dpy, Button3, MOD, w, True,
-                ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
-                GrabModeAsync, GrabModeAsync, None, None);
-}
-
-void manage_window(Window w) {
-    XSelectInput(dpy, w, FocusChangeMask | StructureNotifyMask);
-    XSetWindowBorderWidth(dpy, w, 2);
-    
-    // Înregistrăm butoanele de mouse pe fereastra nouă
-    grab_buttons(w);
-
-    XMapWindow(dpy, w);
-    windows.push_back({w});
-    focus_window((int)windows.size() - 1);
-}
-
-void unmanage_window(Window w) {
-    auto it = std::find_if(windows.begin(), windows.end(), [&](const ManagedWindow& mw) {
-        return mw.win == w;
-    });
-
-    if (it == windows.end()) return;
-
-    windows.erase(it);
-    if (focus_index >= (int)windows.size()) focus_index = (int)windows.size() - 1;
-    if (focus_index >= 0) focus_window(focus_index);
-}
-
-void close_window(Window w) {
-    Atom wm_delete = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
-    XEvent xev = {};
-    xev.xclient.type = ClientMessage;
-    xev.xclient.window = w;
-    xev.xclient.message_type = XInternAtom(dpy, "WM_PROTOCOLS", False);
-    xev.xclient.format = 32;
-    xev.xclient.data.l[0] = (long)wm_delete;
-    xev.xclient.data.l[1] = CurrentTime;
-    XSendEvent(dpy, w, False, NoEventMask, &xev);
-}
-
-void grab_keys() {
-    XGrabKey(dpy, XKeysymToKeycode(dpy, XK_Return), MOD, root, True, GrabModeAsync, GrabModeAsync);
-    XGrabKey(dpy, XKeysymToKeycode(dpy, XK_C), MOD | ShiftMask, root, True, GrabModeAsync, GrabModeAsync);
-    XGrabKey(dpy, XKeysymToKeycode(dpy, XK_Tab), MOD, root, True, GrabModeAsync, GrabModeAsync);
-    XGrabKey(dpy, XKeysymToKeycode(dpy, XK_Q), MOD | ShiftMask, root, True, GrabModeAsync, GrabModeAsync);
 }
 
 void resize_window(Window w, int width, int height) {
@@ -149,6 +94,58 @@ void resize_window(Window w, int width, int height) {
     ce.override_redirect = False;
 
     XSendEvent(dpy, w, False, StructureNotifyMask, (XEvent *)&ce);
+}
+
+void grab_buttons(Window w) {
+    XGrabButton(dpy, Button1, MOD, w, True,
+                ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+                GrabModeAsync, GrabModeAsync, None, None);
+
+    XGrabButton(dpy, Button3, MOD, w, True,
+                ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+                GrabModeAsync, GrabModeAsync, None, None);
+}
+
+void manage_window(Window w) {
+    XSelectInput(dpy, w, FocusChangeMask | StructureNotifyMask);
+    XSetWindowBorderWidth(dpy, w, 2);
+    
+    grab_buttons(w);
+
+    XMapWindow(dpy, w);
+    windows.push_back({w});
+    focus_window((int)windows.size() - 1);
+}
+
+void unmanage_window(Window w) {
+    auto it = std::find_if(windows.begin(), windows.end(), [&](const ManagedWindow& mw) {
+        return mw.win == w;
+    });
+
+    if (it == windows.end()) return;
+
+    windows.erase(it);
+    if (focus_index >= (int)windows.size()) focus_index = (int)windows.size() - 1;
+    if (focus_index >= 0) focus_window(focus_index);
+}
+
+void close_window(Window w) {
+    Atom wm_delete = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
+    XEvent xev = {};
+    xev.xclient.type = ClientMessage;
+    xev.xclient.window = w;
+    xev.xclient.message_type = XInternAtom(dpy, "WM_PROTOCOLS", False);
+    xev.xclient.format = 32;
+    xev.xclient.data.l[0] = (long)wm_delete;
+    xev.xclient.data.l[1] = CurrentTime;
+    XSendEvent(dpy, w, False, NoEventMask, &xev);
+}
+
+void grab_keys() {
+    XGrabKey(dpy, XKeysymToKeycode(dpy, XK_Return), MOD, root, True, GrabModeAsync, GrabModeAsync);
+    XGrabKey(dpy, XKeysymToKeycode(dpy, XK_C), MOD | ShiftMask, root, True, GrabModeAsync, GrabModeAsync);
+    XGrabKey(dpy, XKeysymToKeycode(dpy, XK_Tab), MOD, root, True, GrabModeAsync, GrabModeAsync);
+    XGrabKey(dpy, XKeysymToKeycode(dpy, XK_Q), MOD | ShiftMask, root, True, GrabModeAsync, GrabModeAsync);
 }
 
 int main() {
@@ -208,15 +205,12 @@ int main() {
                     int ydiff = ev.xbutton.y_root - start_mouse.y_root;
 
                     if (start_mouse.button == Button1) {
-                        // Alt + Click Stânga Drag -> Mutare
                         XMoveWindow(dpy, start_mouse.subwindow,
                                     start_attr.x + xdiff,
                                     start_attr.y + ydiff);
                     } else if (start_mouse.button == Button3) {
-                        // Alt + Click Dreapta Drag -> Redimensionare corectă
                         int new_w = start_attr.width + xdiff;
                         int new_h = start_attr.height + ydiff;
-                        
                         resize_window(start_mouse.subwindow, new_w, new_h);
                     }
                 }
