@@ -221,10 +221,20 @@ void close_window(Window w) {
     XSendEvent(dpy, w, False, NoEventMask, &xev);
 }
 
+void grab_key_with_mods(KeySym ks, unsigned int mask) {
+    KeyCode code = XKeysymToKeycode(dpy, ks);
+    if (!code) return;
+
+    unsigned int modifiers[] = { 0, Mod2Mask, LockMask, Mod2Mask | LockMask };
+    for (unsigned int mod : modifiers) {
+        XGrabKey(dpy, code, mask | mod, root, True, GrabModeAsync, GrabModeAsync);
+    }
+}
+
 void grab_keys() {
-    XGrabKey(dpy, XKeysymToKeycode(dpy, XK_Return), MOD, root, True, GrabModeAsync, GrabModeAsync);
-    XGrabKey(dpy, XKeysymToKeycode(dpy, XK_C), MOD | ShiftMask, root, True, GrabModeAsync, GrabModeAsync);
-    XGrabKey(dpy, XKeysymToKeycode(dpy, XK_Q), MOD | ShiftMask, root, True, GrabModeAsync, GrabModeAsync);
+    grab_key_with_mods(XK_Return, MOD);
+    grab_key_with_mods(XK_C, MOD | ShiftMask);
+    grab_key_with_mods(XK_Q, MOD | ShiftMask);
 }
 
 int main() {
@@ -235,6 +245,9 @@ int main() {
 
     screen = DefaultScreen(dpy);
     root = RootWindow(dpy, screen);
+
+    XSetWindowBackground(dpy, root, 0x222222);
+    XClearWindow(dpy, root);
 
     XSelectInput(dpy, root, SubstructureRedirectMask | SubstructureNotifyMask);
     grab_keys();
@@ -284,9 +297,9 @@ int main() {
 
                 if (ev.xkey.state & MOD) {
                     if (ks == XK_Return) {
-                        const char* cmd[] = { "xterm", nullptr };
+                        const char* cmd[] = { "/usr/bin/xterm", nullptr };
                         spawn(cmd);
-                    } else if (ks == XK_C && (ev.xkey.state & ShiftMask)) {
+                    }   else if (ks == XK_C && (ev.xkey.state & ShiftMask)) {
                         if (current_focus != None) {
                             close_window(current_focus);
                         }
